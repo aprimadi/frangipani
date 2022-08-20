@@ -1,4 +1,4 @@
-# Harvester
+# Frangipani
 
 The goal of this project is to create a configurable and extensible crawler
 framework.
