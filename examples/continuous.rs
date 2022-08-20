@@ -1,19 +1,5 @@
-# Harvester
-
-The goal of this project is to create a configurable and extensible crawler
-framework.
-
-## Features
-
-- Continuous crawling
-- Concurrent crawling
-- Obey robots.txt
-
-## Usage
-
-```rust
 use async_trait::async_trait;
-use frangipani::{Response, Spider};
+use frangipani::{Config, Response, Spider};
 use frangipani::util::join_url;
 use scraper::{Html, Selector};
 
@@ -78,10 +64,10 @@ async fn main() {
         Box::new(DexcodeSpider {}),
     ];
 
-    let mut engine = frangipani::engine(spiders);
+    let mut config = Config::default();
+    config.continuous_crawl = true;
+    config.continuous_crawl_interval_mins = 15;
+    let mut engine = frangipani::engine_with_config(config, spiders);
     engine.start().await;
 }
-```
-
-For continuous crawling, see `examples/continuous.rs` in the project repository.
 
