@@ -18,6 +18,7 @@ use crate::downloader::Downloader;
 use crate::scheduler::{DEFAULT_PRIORITY, Scheduler, SchedulerItem};
 use crate::spider::Spider;
 use crate::stats::Stats;
+use crate::util;
 
 const DEBUG_LOCK: bool = false;
 
@@ -113,6 +114,10 @@ where
     pub async fn start(&mut self) {
         let config = &self.state.config;
         config.sanity_check();
+
+        if self.state.spiders.len() == 0 {
+            panic!("No spiders set");
+        }
 
         let (stop_tx, _) = broadcast::channel::<()>(32);
         let tx = stop_tx.clone();
@@ -256,7 +261,9 @@ where
                     
                     // Route response to the spider
                     let spider = state.spiders.get(&item.spider_name).unwrap();
+                    let base_url = response.get_url().to_owned();
                     let (num_processed, urls) = spider.parse(response).await;
+                    let urls = normalize_urls(&base_url, urls);
                     state.stats.add_total_processed(num_processed);
                     
                     // Enqueue back urls from the spider
@@ -498,6 +505,20 @@ where
     } else { // No robot found, return true
         true
     }
+}
+
+fn normalize_urls(base_url: &str, urls: Vec<String>) -> Vec<String> {
+    let mut res = vec![];
+    for url in urls {
+        let absolute_url = util::join_url(base_url, &url);
+        let mut req_url = reqwest::Url::parse(&absolute_url).unwrap();
+        req_url.set_fragment(None);
+        if req_url.scheme() != "http" && req_url.scheme() != "https" {
+            continue;
+        }
+        res.push(req_url.to_string());
+    }
+    res
 }
 
 fn get_domain(url: &str) -> String {

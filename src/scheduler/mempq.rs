@@ -29,12 +29,13 @@ pub struct MempqScheduler {
 
 impl MempqScheduler {
     pub fn new() -> Self {
+        // TODO: Configurable db url
         Self {
             current_priority: HashMap::new(),
             queues: HashMap::new(),
             num_items: 0,
             added_urls: HashSet::new(),
-            visited_urls: rocksdb::DB::open_default("harvester/db/added_urls")
+            visited_urls: rocksdb::DB::open_default("db/added_urls")
                 .unwrap(),
         }
     }

@@ -1,5 +1,5 @@
 [package]
-name = "harvester"
+name = "frangipani"
 version = "0.1.0"
 edition = "2021"
 authors = ["Armin Primadi <aprimadi@gmail.com>"]
@@ -24,4 +24,8 @@ texting_robots = "0.2"
 tokio = { version = "1.20", features = ["full"] }
 ureq = "2.5"
 var-bitmap = "0.1"
+
+[dev-dependencies]
+env_logger = "0.9"
+scraper = "0.13"
 

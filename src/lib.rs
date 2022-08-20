@@ -5,6 +5,7 @@ mod spider;
 mod stats;
 
 pub mod scheduler;
+pub mod util;
 
 // (Re) Exports
 pub use config::Config;
