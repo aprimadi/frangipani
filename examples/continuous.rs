@@ -67,6 +67,7 @@ async fn main() {
     let mut config = Config::default();
     config.continuous_crawl = true;
     config.continuous_crawl_interval_mins = 15;
+    config.data_dir = "data".to_owned();
     let mut engine = frangipani::engine_with_config(config, spiders);
     engine.start().await;
 }

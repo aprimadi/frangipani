@@ -13,6 +13,8 @@ pub struct Config {
     pub continuous_crawl: bool,
     /// Interval before the engine re-add starting urls in minutes.
     pub continuous_crawl_interval_mins: u64,
+    /// Directory to store crawler state.
+    pub data_dir: String,
     /// The amount of time (in secs) that the downloader should wait before
     /// downloading consecutive pages from the same website.
     pub download_delay: f32,
@@ -42,6 +44,7 @@ impl Default for Config {
             concurrent_requests_per_domain: 1,
             continuous_crawl: false,
             continuous_crawl_interval_mins: 60,
+            data_dir: "db".to_owned(),
             download_delay: 2.0,
             robotstxt_obey: true,
         }

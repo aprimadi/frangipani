@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::Path;
 
 use chrono::{Duration, Utc};
+
+use crate::config::Config;
 
 use super::{Scheduler, SchedulerItem};
 
@@ -28,14 +31,14 @@ pub struct MempqScheduler {
 }
 
 impl MempqScheduler {
-    pub fn new() -> Self {
-        // TODO: Configurable db url
+    pub fn new(config: &Config) -> Self {
+        let visited_urls_path = Path::new(&config.data_dir).join("visited_urls");
         Self {
             current_priority: HashMap::new(),
             queues: HashMap::new(),
             num_items: 0,
             added_urls: HashSet::new(),
-            visited_urls: rocksdb::DB::open_default("db/added_urls")
+            visited_urls: rocksdb::DB::open_default(visited_urls_path.to_str().unwrap())
                 .unwrap(),
         }
     }

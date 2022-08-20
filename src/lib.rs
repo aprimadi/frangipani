@@ -20,13 +20,16 @@ use scheduler::mempq::MempqScheduler;
 pub fn engine(
     spiders: Vec<Box<dyn Spider + Send + Sync>>,
 ) -> Engine<MempqScheduler> {
-    Engine::new(Config::default(), MempqScheduler::new(), spiders)
+    let config = Config::default();
+    let scheduler = MempqScheduler::new(&config);
+    Engine::new(config, scheduler, spiders)
 }
 
 pub fn engine_with_config(
     config: Config,
     spiders: Vec<Box<dyn Spider + Send + Sync>>,
 ) -> Engine<MempqScheduler> {
-    Engine::new(config, MempqScheduler::new(), spiders)
+    let scheduler = MempqScheduler::new(&config);
+    Engine::new(config, scheduler, spiders)
 }
 
