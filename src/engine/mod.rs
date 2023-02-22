@@ -2,16 +2,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use fasthash::FastHash;
-use fasthash::xx::Hash64;
-use rand::{RngCore, SeedableRng};
 use rand::seq::SliceRandom;
-use rand_chacha::ChaCha8Rng;
-use reqwest::Url;
 use texting_robots::Robot;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use var_bitmap::Bitmap;
+
+mod downloader_pool;
 
 use crate::Config;
 use crate::downloader::Downloader;
@@ -19,6 +16,8 @@ use crate::scheduler::{DEFAULT_PRIORITY, Scheduler, SchedulerItem};
 use crate::spider::Spider;
 use crate::stats::Stats;
 use crate::util;
+
+use downloader_pool::DownloaderPool;
 
 const DEBUG_LOCK: bool = false;
 
@@ -36,12 +35,10 @@ struct EngineState<Sched>
 where
     Sched: Scheduler + Send,
 {
-    config: Config,
+    config: Arc<Config>,
     scheduler: Mutex<Sched>,
     spiders: HashMap<String, Box<dyn Spider + Send + Sync>>,
-    downloaders: Mutex< Vec<Arc<Downloader>> > ,
-    // Map from domain -> indexes to downloaders
-    domain_downloaders: Mutex< HashMap<String, Vec<usize>> >,
+    downloader_pool: DownloaderPool,
 
     // Map from host -> robot
     //
@@ -70,17 +67,17 @@ where
         scheduler: Sched, 
         spiders: Vec<Box<dyn Spider + Send + Sync>>
     ) -> Self {
+        let config = Arc::new(config);
         let mut spiders_ = HashMap::new();
         for spider in spiders {
             let name = spider.name();
             spiders_.insert(name, spider);
         }
         Self {
-            config,
+            config: config.clone(),
             scheduler: Mutex::new(scheduler),
             spiders: spiders_,
-            downloaders: Mutex::new(vec![]),
-            domain_downloaders: Mutex::new(HashMap::new()),
+            downloader_pool: DownloaderPool::new(config.clone()),
             robots: Mutex::new(HashMap::new()),
             idle_process: Mutex::new(Bitmap::new()),
             stats: Stats::new(),
@@ -137,10 +134,7 @@ where
             downloaders.push(downloader);
             join_handles.append(&mut handles);
         }
-        {
-            let mut state_downloaders = self.state.downloaders.lock().unwrap();
-            *state_downloaders = downloaders;
-        }
+        self.state.downloader_pool.set_downloaders(downloaders);
         
         // Puts each spider start urls to scheduler
         {
@@ -244,11 +238,7 @@ where
                     }
 
                     // Get response from the downloader
-                    let downloader = get_downloader(
-                        thread_id,
-                        state.clone(),
-                        &item
-                    );
+                    let downloader = state.downloader_pool.get_downloader(&item.url);
                     let response = downloader.get(&item.url).await;
                     if let Err(e) = response {
                         // TODO: More advanced error handling on request error
@@ -416,53 +406,6 @@ where
     })
 }
 
-fn get_downloader<Sched>(
-    thread_id: u32,
-    state: Arc<EngineState<Sched>>,
-    item: &SchedulerItem,
-) -> Arc<Downloader> 
-where
-    Sched: 'static + Scheduler + Send,
-{
-    let mut rng = rand::thread_rng();
-    let downloaders = state.downloaders.lock().unwrap();
-    if state.config.concurrent_requests_per_domain == 0 {
-        // Simply choose from all downloaders
-        let downloader = downloaders.choose(&mut rng).unwrap();
-        downloader.clone()
-    } else {
-        let result;
-        {
-            let mut domain_downloaders = state.domain_downloaders.lock().unwrap();
-            lock_debug!("[thread-{}] domain_downloaders lock acquired", thread_id);
-            let domain = get_domain(&item.url);
-            if !domain_downloaders.contains_key(&domain) {
-                // Build indices
-                let seed = Hash64::hash(domain.as_bytes());
-                let mut cha_rng = ChaCha8Rng::seed_from_u64(seed);
-                let mut indices = vec![];
-                let sz = state.config.concurrent_requests_per_domain as usize;
-                while indices.len() < sz {
-                    let idx = cha_rng.next_u32() as usize % downloaders.len();
-                    if !indices.contains(&idx) {
-                        indices.push(idx);
-                    }
-                }
-                domain_downloaders.insert(domain.clone(), indices);
-            }
-            let indices = domain_downloaders.get(&domain).unwrap();
-            
-            let idx = indices.choose(&mut rng).unwrap();
-            let downloader = downloaders.get(*idx).unwrap();
-            // Note that since the downloader is only used for the `get` 
-            // method, this is thread safe.
-            result = downloader.clone()
-        }
-        lock_debug!("[thread-{}] domain_downloaders lock released", thread_id);
-        result
-    }
-}
-
 fn is_url_allowed_by_robot<Sched>(
     state: Arc<EngineState<Sched>>,
     url: &str,
@@ -474,13 +417,13 @@ where
         return true;
     }
 
-    let host = get_host(&url);
+    let host = util::get_host(&url);
     if host.is_none() { // robot rules doesn't apply
         return true;
     }
     let host = host.unwrap();
 
-    let robot_url = get_robot_url(&url);
+    let robot_url = util::get_robot_url(&url);
     if robot_url.is_none() { // no robot url
         return true;
     }
@@ -520,25 +463,3 @@ fn normalize_urls(base_url: &str, urls: Vec<String>) -> Vec<String> {
     }
     res
 }
-
-fn get_domain(url: &str) -> String {
-    let url_ = Url::parse(url).unwrap();
-    url_.domain().unwrap().to_owned()
-}
-
-fn get_host(url: &str) -> Option<String> {
-    let url_ = Url::parse(url).unwrap();
-    url_.host_str().map(|x| x.to_owned())
-}
-
-fn get_robot_url(url: &str) -> Option<String> {
-    let mut url_ = Url::parse(url).unwrap();
-    if url_.scheme() != "http" && url_.scheme() != "https" {
-        return None;
-    }
-    url_.set_path("/robots.txt");
-    url_.set_query(None);
-    url_.set_fragment(None);
-    Some(url_.to_string())
-}
-
