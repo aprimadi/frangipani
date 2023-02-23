@@ -3,12 +3,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rand::seq::SliceRandom;
-use texting_robots::Robot;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use var_bitmap::Bitmap;
 
 mod downloader_pool;
+mod guard_robot;
 
 use crate::Config;
 use crate::downloader::Downloader;
@@ -18,6 +18,7 @@ use crate::stats::Stats;
 use crate::util;
 
 use downloader_pool::DownloaderPool;
+use guard_robot::GuardRobot;
 
 const DEBUG_LOCK: bool = false;
 
@@ -39,18 +40,7 @@ where
     scheduler: Mutex<Sched>,
     spiders: HashMap<String, Box<dyn Spider + Send + Sync>>,
     downloader_pool: DownloaderPool,
-
-    // Map from host -> robot
-    //
-    // Note that this is part of the engine because the scheduler's job is
-    // only to schedule item, whether the item is added or visited.
-    //
-    // Obeying robots.txt is at a url level. Although, one can argue that it 
-    // should be part of the scheduler, we want to keep the scheduler interface
-    // as clean as possible, dealing only with added or visited items. This is 
-    // to ensure that one can extend the scheduler and provides other 
-    // implementations.
-    robots: Mutex< HashMap<String, Option<Robot>> >,
+    guard_robot: GuardRobot,
 
     // Processing thread status either idle `1` or busy `0`
     idle_process: Mutex<Bitmap>,
@@ -78,7 +68,7 @@ where
             scheduler: Mutex::new(scheduler),
             spiders: spiders_,
             downloader_pool: DownloaderPool::new(config.clone()),
-            robots: Mutex::new(HashMap::new()),
+            guard_robot: GuardRobot::new(config.clone()),
             idle_process: Mutex::new(Bitmap::new()),
             stats: Stats::new(),
         }
@@ -262,7 +252,7 @@ where
                         lock_debug!("[thread-{}] scheduler lock 2 acquired", thread_id);
                         scheduler.mark_visited(&item.url);
                         for url in urls {
-                            if !is_url_allowed_by_robot(state.clone(), &url) {
+                            if !state.guard_robot.is_allowed(&url) {
                                 continue;
                             }
 
@@ -404,50 +394,6 @@ where
             }
         }
     })
-}
-
-fn is_url_allowed_by_robot<Sched>(
-    state: Arc<EngineState<Sched>>,
-    url: &str,
-) -> bool 
-where
-    Sched: 'static + Scheduler + Send,
-{
-    if !state.config.robotstxt_obey {
-        return true;
-    }
-
-    let host = util::get_host(&url);
-    if host.is_none() { // robot rules doesn't apply
-        return true;
-    }
-    let host = host.unwrap();
-
-    let robot_url = util::get_robot_url(&url);
-    if robot_url.is_none() { // no robot url
-        return true;
-    }
-    let robot_url = robot_url.unwrap();
-
-    let mut robots = state.robots.lock().unwrap();
-
-    // Populate robot
-    if !robots.contains_key(&host) {
-        if let Ok(response) = ureq::get(&robot_url).call() {
-            let text = response.into_string().unwrap();
-            let robot = Robot::new(&state.config.bot_name, text.as_bytes()).unwrap();
-            robots.insert(host.clone(), Some(robot));
-        } else {
-            robots.insert(host.clone(), None);
-        }
-    }
-
-    // Check if url obey robots.txt
-    if let Some(Some(robot)) = robots.get(&host) {
-        robot.allowed(&url)
-    } else { // No robot found, return true
-        true
-    }
 }
 
 fn normalize_urls(base_url: &str, urls: Vec<String>) -> Vec<String> {
