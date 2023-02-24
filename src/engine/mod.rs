@@ -5,10 +5,10 @@ use std::time::Duration;
 use rand::seq::SliceRandom;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
-use var_bitmap::Bitmap;
 
 mod downloader_pool;
 mod guard_robot;
+mod thread_state;
 
 use crate::Config;
 use crate::downloader::Downloader;
@@ -19,6 +19,7 @@ use crate::util;
 
 use downloader_pool::DownloaderPool;
 use guard_robot::GuardRobot;
+use thread_state::{ThreadState, ThreadStatus};
 
 const DEBUG_LOCK: bool = false;
 
@@ -41,9 +42,7 @@ where
     spiders: HashMap<String, Box<dyn Spider + Send + Sync>>,
     downloader_pool: DownloaderPool,
     guard_robot: GuardRobot,
-
-    // Processing thread status either idle `1` or busy `0`
-    idle_process: Mutex<Bitmap>,
+    thread_state: ThreadState,
 
     stats: Stats,
 }
@@ -69,7 +68,7 @@ where
             spiders: spiders_,
             downloader_pool: DownloaderPool::new(config.clone()),
             guard_robot: GuardRobot::new(config.clone()),
-            idle_process: Mutex::new(Bitmap::new()),
+            thread_state: ThreadState::new(config.concurrent_requests as usize),
             stats: Stats::new(),
         }
     }
@@ -152,12 +151,6 @@ where
         }
         
         // Start processing
-        {
-            let mut idle_process = self.state.idle_process.lock().unwrap();
-            for _ in 0..config.concurrent_requests {
-                idle_process.push(false);
-            }
-        }
         for i in 0..config.concurrent_requests {
             let handle = start_processing_thread(
                 i+1,
@@ -221,11 +214,7 @@ where
                 Some(item) => {
                     log::info!("[thread-{}] {}", thread_id, &item.url);
 
-                    {
-                        let mut idle_process = state.idle_process.lock().unwrap();
-                        let process_idx = (thread_id - 1) as usize;
-                        idle_process.set(process_idx, false);
-                    }
+                    state.thread_state.set_thread_status(thread_id, ThreadStatus::Busy);
 
                     // Get response from the downloader
                     let downloader = state.downloader_pool.get_downloader(&item.url);
@@ -271,16 +260,9 @@ where
                 }
                 None => {
                     {
-                        let mut idle_process = state.idle_process.lock().unwrap();
-                        let process_idx = (thread_id - 1) as usize;
-                        idle_process.set(process_idx, true);
+                        state.thread_state.set_thread_status(thread_id, ThreadStatus::Idle);
 
-                        let mut all_idle = true;
-                        for process_idx in 0..idle_process.size() {
-                            all_idle &= idle_process.get(process_idx);
-                        }
-
-                        if all_idle {
+                        if state.thread_state.is_all_idle() {
                             if state.config.continuous_crawl {
                                 state.stats.reset();
                             } else {
