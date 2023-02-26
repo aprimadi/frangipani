@@ -38,7 +38,7 @@ where
     Sched: Scheduler + Send,
 {
     config: Arc<Config>,
-    scheduler: Mutex<Sched>,
+    scheduler: Arc<Mutex<Sched>>,
     spiders: HashMap<String, Box<dyn Spider + Send + Sync>>,
     downloader_pool: DownloaderPool,
     guard_robot: GuardRobot,
@@ -64,7 +64,7 @@ where
         }
         Self {
             config: config.clone(),
-            scheduler: Mutex::new(scheduler),
+            scheduler: Arc::new(Mutex::new(scheduler)),
             spiders: spiders_,
             downloader_pool: DownloaderPool::new(config.clone()),
             guard_robot: GuardRobot::new(config.clone()),
