@@ -1,3 +1,4 @@
+#[derive(Clone, Debug)]
 pub struct Config {
     /// Bot name / user agent
     pub bot_name: String,
@@ -5,10 +6,10 @@ pub struct Config {
     /// the downloader
     pub concurrent_requests: u32,
     /// The maximum number of concurrent requests that will be performed to
-    /// any single domain. A value of 0 means that this setting will be 
+    /// any single domain. A value of 0 means that this setting will be
     /// ignored.
     pub concurrent_requests_per_domain: u32,
-    /// If set to true, the engine will re-add starting urls every defined 
+    /// If set to true, the engine will re-add starting urls every defined
     /// interval. Default to false.
     pub continuous_crawl: bool,
     /// Interval before the engine re-add starting urls in minutes.
@@ -20,6 +21,9 @@ pub struct Config {
     pub download_delay: f32,
     /// If enabled, Harvester will respect robots.txt policies.
     pub robotstxt_obey: bool,
+    /// How long before visited urls expire and the crawler may recrawl the
+    /// url in days. If it is none, the visited urls do not expire.
+    pub visited_url_expired_interval_days: Option<u32>,
 }
 
 impl Config {
@@ -47,6 +51,7 @@ impl Default for Config {
             data_dir: "db".to_owned(),
             download_delay: 2.0,
             robotstxt_obey: true,
+            visited_url_expired_interval_days: Some(30),
         }
     }
 }
