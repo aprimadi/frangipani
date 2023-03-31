@@ -8,6 +8,7 @@ use tokio::task::JoinHandle;
 
 mod downloader_pool;
 mod guard_robot;
+mod reporting_task;
 mod thread_state;
 
 use crate::Config;
@@ -19,6 +20,7 @@ use crate::util;
 
 use downloader_pool::DownloaderPool;
 use guard_robot::GuardRobot;
+use reporting_task::start_reporting_thread;
 use thread_state::{ThreadState, ThreadStatus};
 
 const DEBUG_LOCK: bool = false;
@@ -33,7 +35,7 @@ macro_rules! lock_debug {
     };
 }
 
-struct EngineState<Sched> 
+struct EngineState<Sched>
 where
     Sched: Scheduler + Send,
 {
@@ -52,8 +54,8 @@ where
     Sched: Scheduler + Send
 {
     pub fn new(
-        config: Config, 
-        scheduler: Sched, 
+        config: Config,
+        scheduler: Sched,
         spiders: Vec<Box<dyn Spider + Send + Sync>>
     ) -> Self {
         let config = Arc::new(config);
@@ -77,13 +79,13 @@ where
 // Note that since `config`, `spiders`, and `downloaders` are read-only after
 // initialization, it doesn't need to be protected by mutex.
 pub struct Engine<Sched>
-where 
+where
     Sched: Scheduler + Send,
 {
     state: Arc<EngineState<Sched>>,
 }
 
-impl<Sched> Engine<Sched> 
+impl<Sched> Engine<Sched>
 where
     Sched: 'static + Scheduler + Send,
 {
@@ -96,7 +98,7 @@ where
         Self { state: Arc::new(state) }
     }
 
-    
+
     pub async fn start(&mut self) {
         let config = &self.state.config;
         config.sanity_check();
@@ -112,7 +114,7 @@ where
         }).unwrap();
 
         let mut join_handles = vec![];
-        
+
         // Spawn multiple downloaders
         let mut downloaders = vec![];
         log::debug!("concurrent requests: {}", config.concurrent_requests);
@@ -124,7 +126,7 @@ where
             join_handles.append(&mut handles);
         }
         self.state.downloader_pool.set_downloaders(downloaders);
-        
+
         // Puts each spider start urls to scheduler
         {
             let mut scheduler = self.state.scheduler.lock().unwrap();
@@ -149,7 +151,7 @@ where
             let h = start_reporting_thread(self.state.clone(), stop_tx.clone());
             join_handles.push(h);
         }
-        
+
         // Start processing
         for i in 0..config.concurrent_requests {
             let handle = start_processing_thread(
@@ -162,7 +164,7 @@ where
 
         if config.continuous_crawl {
             let h = start_continuous_crawl_thread(
-                self.state.clone(), 
+                self.state.clone(),
                 stop_tx.clone()
             );
             join_handles.push(h);
@@ -180,7 +182,7 @@ fn start_processing_thread<Sched>(
     thread_id: u32,
     state: Arc<EngineState<Sched>>,
     stop_tx: broadcast::Sender<()>,
-) -> JoinHandle<()> 
+) -> JoinHandle<()>
 where
     // TODO: Not sure how to fix this lifetime issue without using static
     Sched: 'static + Scheduler + Send,
@@ -201,7 +203,7 @@ where
                 let chosen_spider = *spider_names.choose(&mut rng).unwrap();
 
                 lock_debug!(
-                    "[thread-{}] scheduler lock 1 waiting on lock", 
+                    "[thread-{}] scheduler lock 1 waiting on lock",
                     thread_id
                 );
                 let mut scheduler = state.scheduler.lock().unwrap();
@@ -227,14 +229,14 @@ where
                     }
                     let response = response.unwrap();
                     state.stats.incr_total_crawled();
-                    
+
                     // Route response to the spider
                     let spider = state.spiders.get(&item.spider_name).unwrap();
                     let base_url = response.get_url().to_owned();
                     let (num_processed, urls) = spider.parse(response).await;
                     let urls = normalize_urls(&base_url, urls);
                     state.stats.add_total_processed(num_processed);
-                    
+
                     // Enqueue back urls from the spider
                     {
                         let mut scheduler = state.scheduler.lock().unwrap();
@@ -280,44 +282,6 @@ where
     })
 }
 
-fn start_reporting_thread<Sched>(
-    state: Arc<EngineState<Sched>>,
-    stop_tx: broadcast::Sender<()>,
-) -> JoinHandle<()>
-where
-    // TODO: Not sure how to fix this lifetime issue without using static
-    Sched: 'static + Scheduler + Send,
-{
-    let mut stop_rx = stop_tx.subscribe();
-    tokio::spawn(async move {
-        'run: loop {
-            let sleep = tokio::time::sleep(std::time::Duration::from_secs(60));
-            tokio::pin!(sleep);
-
-            tokio::select! {
-                res = stop_rx.recv() => {
-                    if let Ok(_) = res {
-                        break 'run;
-                    }
-                }
-                _ = &mut sleep => {
-                    let crawled = state.stats.total_crawled();
-                    let processed = state.stats.total_processed();
-                    let cpm = state.stats.crawled_per_minute();
-                    let ppm = state.stats.processed_per_minute();
-                    log::info!(
-                        "{} crawled at {} pages/minute, {} processed at {} items/minute",
-                        crawled,
-                        cpm,
-                        processed,
-                        ppm,
-                    );
-                }
-            }
-        }
-    })
-}
-
 fn start_continuous_crawl_thread<Sched>(
     state: Arc<EngineState<Sched>>,
     stop_tx: broadcast::Sender<()>,
@@ -354,8 +318,8 @@ where
                     }
 
                     log::info!(
-                        "Recrawl, num items: {}, priority: {}", 
-                        num_items, 
+                        "Recrawl, num items: {}, priority: {}",
+                        num_items,
                         priority
                     );
                     for (name, spider) in state.spiders.iter() {
