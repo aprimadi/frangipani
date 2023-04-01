@@ -8,7 +8,8 @@
 
 - Engine redesign
 
-HEAD
-====
+0.3.0
+=====
 
 - Major refactoring
+- Configurable expiration interval for visited url

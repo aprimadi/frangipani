@@ -1,6 +1,6 @@
 [package]
 name = "frangipani"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Armin Primadi <aprimadi@gmail.com>"]
 keywords = ["scraping", "scraper", "crawler", "web-crawler", "continuous-crawler"]
@@ -28,4 +28,3 @@ var-bitmap = "0.1"
 [dev-dependencies]
 env_logger = "0.9"
 scraper = "0.13"
-
