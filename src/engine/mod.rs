@@ -23,12 +23,10 @@ use processing_task::start_processing_thread;
 use reporting_task::start_reporting_thread;
 use thread_state::ThreadState;
 
-struct EngineState<Sched>
-where
-    Sched: Scheduler + Send,
+pub struct EngineState
 {
     config: Arc<Config>,
-    scheduler: Arc<Mutex<Sched>>,
+    scheduler: Arc<Mutex<Box<dyn Scheduler + Send>>>,
     spiders: HashMap<String, Box<dyn Spider + Send + Sync>>,
     downloader_pool: DownloaderPool,
     guard_robot: GuardRobot,
@@ -37,13 +35,10 @@ where
     stats: Stats,
 }
 
-impl<Sched> EngineState<Sched>
-where
-    Sched: Scheduler + Send
-{
+impl EngineState {
     pub fn new(
         config: Config,
-        scheduler: Sched,
+        scheduler: Box<dyn Scheduler + Send>,
         spiders: Vec<Box<dyn Spider + Send + Sync>>
     ) -> Self {
         let config = Arc::new(config);
@@ -66,20 +61,14 @@ where
 
 // Note that since `config`, `spiders`, and `downloaders` are read-only after
 // initialization, it doesn't need to be protected by mutex.
-pub struct Engine<Sched>
-where
-    Sched: Scheduler + Send,
-{
-    state: Arc<EngineState<Sched>>,
+pub struct Engine {
+    pub(crate) state: Arc<EngineState>,
 }
 
-impl<Sched> Engine<Sched>
-where
-    Sched: 'static + Scheduler + Send,
-{
+impl Engine {
     pub fn new(
         config: Config,
-        scheduler: Sched,
+        scheduler: Box<dyn Scheduler + Send>,
         spiders: Vec<Box<dyn Spider + Send + Sync>>,
     ) -> Self {
         let state = EngineState::new(config, scheduler, spiders);

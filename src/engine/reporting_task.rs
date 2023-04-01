@@ -4,16 +4,11 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
 use crate::engine::EngineState;
-use crate::scheduler::Scheduler;
 
-pub(super) fn start_reporting_thread<Sched>(
-    state: Arc<EngineState<Sched>>,
+pub(super) fn start_reporting_thread(
+    state: Arc<EngineState>,
     stop_tx: broadcast::Sender<()>,
-) -> JoinHandle<()>
-where
-    // TODO: Not sure how to fix this lifetime issue without using static
-    Sched: 'static + Scheduler + Send,
-{
+) -> JoinHandle<()> {
     let mut stop_rx = stop_tx.subscribe();
     tokio::spawn(async move {
         'run: loop {

@@ -11,13 +11,13 @@ impl Spider for DexcodeSpider {
     fn name(&self) -> String {
         "dexcode-spider".to_owned()
     }
-    
+
     fn start_urls(&self) -> Vec<String> {
         vec![
             "https://dexcode.com/".to_owned(),
         ]
     }
-    
+
     async fn parse(&self, response: Response) -> (u64, Vec<String>) {
         if response.content_type() != "text/html" {
             return (0, vec![]);
@@ -25,7 +25,7 @@ impl Spider for DexcodeSpider {
 
         let url = response.get_url().to_owned();
         let text = response.into_string().unwrap();
-        
+
         let mut urls = vec![];
         {
             let document = Html::parse_document(&text);
@@ -51,7 +51,7 @@ impl Spider for DexcodeSpider {
             };
             println!("{},{}", url, title);
         }
-        
+
         (1, urls)
     }
 }
@@ -60,15 +60,14 @@ impl Spider for DexcodeSpider {
 async fn main() {
     env_logger::init();
 
-    let spiders: Vec<Box<dyn Spider + Send + Sync>> = vec![
-        Box::new(DexcodeSpider {}),
-    ];
-
     let mut config = Config::default();
     config.continuous_crawl = true;
     config.continuous_crawl_interval_mins = 15;
     config.data_dir = "data".to_owned();
-    let mut engine = frangipani::engine_with_config(config, spiders);
+
+    let mut engine = frangipani::EngineBuilder::new()
+        .with_config(config)
+        .add_spider(Box::new(DexcodeSpider {}))
+        .build();
     engine.start().await;
 }
-

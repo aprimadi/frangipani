@@ -3,18 +3,14 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
-use crate::scheduler::{DEFAULT_PRIORITY, Scheduler, SchedulerItem};
+use crate::scheduler::{DEFAULT_PRIORITY, SchedulerItem};
 
 use super::EngineState;
 
-pub(super) fn start_continuous_crawl_thread<Sched>(
-    state: Arc<EngineState<Sched>>,
+pub(super) fn start_continuous_crawl_thread(
+    state: Arc<EngineState>,
     stop_tx: broadcast::Sender<()>,
-) -> JoinHandle<()>
-where
-    // TODO: Not sure how to fix this lifetime issue without using static
-    Sched: 'static + Scheduler + Send,
-{
+) -> JoinHandle<()> {
     let mut stop_rx = stop_tx.subscribe();
     tokio::spawn(async move {
         'run: loop {

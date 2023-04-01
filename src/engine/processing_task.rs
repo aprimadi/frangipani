@@ -5,7 +5,7 @@ use rand::seq::SliceRandom;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
-use crate::scheduler::{Scheduler, SchedulerItem};
+use crate::scheduler::SchedulerItem;
 use crate::util;
 
 use super::EngineState;
@@ -23,15 +23,11 @@ macro_rules! lock_debug {
     };
 }
 
-pub(super) fn start_processing_thread<Sched>(
+pub(super) fn start_processing_thread(
     thread_id: u32,
-    state: Arc<EngineState<Sched>>,
+    state: Arc<EngineState>,
     stop_tx: broadcast::Sender<()>,
-) -> JoinHandle<()>
-where
-    // TODO: Not sure how to fix this lifetime issue without using static
-    Sched: 'static + Scheduler + Send,
-{
+) -> JoinHandle<()> {
     log::debug!("[thread-{}] start", thread_id);
     let mut stop_rx = stop_tx.subscribe();
     tokio::spawn(async move {
