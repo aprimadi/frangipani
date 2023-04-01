@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
+use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 
@@ -29,7 +30,7 @@ pub struct MempqScheduler {
     num_items: usize,
 
     added_urls: HashSet<String>,
-    visited_urls: rocksdb::DB,
+    visited_urls: Arc<rocksdb::DB>,
 }
 
 impl MempqScheduler {
@@ -41,7 +42,7 @@ impl MempqScheduler {
             queues: HashMap::new(),
             num_items: 0,
             added_urls: HashSet::new(),
-            visited_urls: rocksdb::DB::open_default(visited_urls_path.to_str().unwrap()).unwrap(),
+            visited_urls: Arc::new(rocksdb::DB::open_default(visited_urls_path.to_str().unwrap()).unwrap()),
         }
     }
 }
@@ -156,4 +157,54 @@ fn read_be_i64(input: &mut &[u8]) -> i64 {
     let (int_bytes, rest) = input.split_at(std::mem::size_of::<u64>());
     *input = rest;
     i64::from_be_bytes(int_bytes.try_into().unwrap())
+}
+
+#[derive(Clone, Debug)]
+pub struct MempqSchedulerBuilder {
+    config: Option<Config>,
+    db: Option<Arc<rocksdb::DB>>,
+}
+
+impl MempqSchedulerBuilder {
+    pub fn new() -> Self {
+        Self {
+            config: None,
+            db: None,
+        }
+    }
+
+    pub fn with_config(mut self, config: Config) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    pub fn with_db(mut self, db: Arc<rocksdb::DB>) -> Self {
+        self.db = Some(db);
+        self
+    }
+
+    pub fn build(&self) -> MempqScheduler {
+        let config = match self.config.clone() {
+            Some(c) => c,
+            None => Config::default(),
+        };
+
+        let db = match self.db.clone() {
+            Some(d) => d,
+            None => {
+                let path = Path::new(&config.data_dir).join("visited_urls");
+                let d = rocksdb::DB::open_default(path.to_str().unwrap()).unwrap();
+                Arc::new(d)
+            }
+        };
+
+        MempqScheduler {
+            config,
+            current_priority: HashMap::new(),
+            queues: HashMap::new(),
+            num_items: 0,
+            added_urls: HashSet::new(),
+            visited_urls: db,
+        }
+    }
 }
