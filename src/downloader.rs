@@ -18,7 +18,7 @@ enum DownloaderResponseIpc {
     Get(Result<ureq::Response, DownloaderError>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Downloader {
     download_delay: f32,
     request_tx: Option<mpsc::Sender<DownloaderRequestIpc>>,
@@ -31,41 +31,37 @@ impl Downloader {
             request_tx: None,
         }
     }
-    
+
     pub fn start(
-        &mut self, 
+        &mut self,
         stop_tx: broadcast::Sender<()>
-    ) -> Vec<JoinHandle<()>> {
+    ) -> JoinHandle<()> {
         let (request_tx, request_rx) = mpsc::channel::<DownloaderRequestIpc>(32);
         self.request_tx = Some(request_tx.clone());
-        
-        let mut handles = vec![];
-        {
-            let h = start_processing_thread(
-                self.download_delay, 
-                request_rx,
-                stop_tx,
-            );
-            handles.push(h);
-        }
-        handles
+
+        let handle = start_downloader_thread(
+            self.download_delay,
+            request_rx,
+            stop_tx,
+        );
+        handle
     }
-    
+
     // Note this is thread-safe since it doesn't modify any underlying data.
     pub async fn get(
-        &self, 
+        &self,
         url: &str
     ) -> Result<ureq::Response, DownloaderError> {
         let request_tx = self.request_tx.clone().unwrap();
-        
-        let (response_tx, mut response_rx) = 
+
+        let (response_tx, mut response_rx) =
             mpsc::channel::<DownloaderResponseIpc>(1);
-        let req = DownloaderRequestIpc::Get { 
-            url: url.to_owned(), 
-            tx: response_tx 
+        let req = DownloaderRequestIpc::Get {
+            url: url.to_owned(),
+            tx: response_tx
         };
         request_tx.send(req).await.unwrap();
-        
+
         if let Some(ipc) = response_rx.recv().await {
             match ipc {
                 DownloaderResponseIpc::Get(resp) => resp
@@ -76,7 +72,7 @@ impl Downloader {
     }
 }
 
-fn start_processing_thread(
+fn start_downloader_thread(
     download_delay: f32,
     mut rx: mpsc::Receiver<DownloaderRequestIpc>,
     stop_tx: broadcast::Sender<()>,
@@ -130,4 +126,3 @@ fn start_processing_thread(
         }
     })
 }
-

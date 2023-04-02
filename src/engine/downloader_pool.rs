@@ -6,6 +6,8 @@ use fasthash::xx::Hash64;
 use rand::{RngCore, SeedableRng};
 use rand::seq::SliceRandom;
 use rand_chacha::ChaCha8Rng;
+use tokio::sync::broadcast;
+use tokio::task::JoinHandle;
 
 use crate::{Config, util};
 use crate::downloader::Downloader;
@@ -17,7 +19,6 @@ pub struct DownloaderPool {
 }
 
 struct DownloaderPoolInner {
-    initialized: bool,
     downloaders: Vec<Arc<Downloader>>,
     domain_downloaders: HashMap<String, Vec<usize>>,
 }
@@ -26,29 +27,32 @@ impl DownloaderPool {
     pub fn new(config: Arc<Config>) -> Self {
         Self {
             config,
-            inner: Arc::new(Mutex::new(DownloaderPoolInner { 
-                initialized: false, 
-                downloaders: vec![], 
+            inner: Arc::new(Mutex::new(DownloaderPoolInner {
+                downloaders: vec![],
                 domain_downloaders: HashMap::new(),
             }))
         }
     }
-    
-    /// This method is used to initialize the pool. It should only be called
-    /// once and before all the other methods are called.
-    pub fn set_downloaders(&self, downloaders: Vec<Arc<Downloader>>) {
+
+    pub fn start(&self, stop_tx: broadcast::Sender<()>) -> Vec<JoinHandle<()>> {
+        let mut join_handles = vec![];
         let mut inner = self.inner.lock().unwrap();
-        assert_eq!(inner.initialized, false);
-        inner.downloaders = downloaders;
-        inner.initialized = true;
+        for _ in 0..self.config.concurrent_requests {
+            let mut downloader = Downloader::new(self.config.download_delay);
+            let handle = downloader.start(stop_tx.clone());
+            join_handles.push(handle);
+
+            let downloader = Arc::new(downloader);
+            inner.downloaders.push(downloader.clone());
+        }
+        join_handles
     }
-    
+
     pub fn get_downloader(&self, url: &str) -> Arc<Downloader> {
         let mut rng = rand::thread_rng();
         let mut inner = self.inner.lock().unwrap();
-        assert_eq!(inner.initialized, true);
         if self.config.concurrent_requests_per_domain == 0 {
-            // Concurrent requests per domain is disabled, simply choose from 
+            // Concurrent requests per domain is disabled, simply choose from
             // all downloaders
             let downloader = inner.downloaders.choose(&mut rng).unwrap();
             downloader.clone()
@@ -68,7 +72,7 @@ impl DownloaderPool {
                 }
                 inner.domain_downloaders.insert(domain.clone(), indices);
             }
-            
+
             let indices = inner.domain_downloaders.get(&domain).unwrap();
             let idx = indices.choose(&mut rng).unwrap();
             let downloader = inner.downloaders.get(*idx).unwrap();

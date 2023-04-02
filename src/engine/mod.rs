@@ -11,7 +11,6 @@ mod reporting_task;
 mod thread_state;
 
 use crate::Config;
-use crate::downloader::Downloader;
 use crate::scheduler::{DEFAULT_PRIORITY, Scheduler, SchedulerItem};
 use crate::spider::Spider;
 use crate::stats::Stats;
@@ -92,17 +91,9 @@ impl Engine {
 
         let mut join_handles = vec![];
 
-        // Spawn multiple downloaders
-        let mut downloaders = vec![];
-        log::debug!("concurrent requests: {}", config.concurrent_requests);
-        for _ in 0..config.concurrent_requests {
-            let mut downloader = Downloader::new(config.download_delay);
-            let mut handles = downloader.start(stop_tx.clone());
-            let downloader = Arc::new(downloader);
-            downloaders.push(downloader);
-            join_handles.append(&mut handles);
-        }
-        self.state.downloader_pool.set_downloaders(downloaders);
+        // Start the downloader pool. This will spawn multiple downloaders.
+        let mut handles = self.state.downloader_pool.start(stop_tx.clone());
+        join_handles.append(&mut handles);
 
         // Puts each spider start urls to scheduler
         {
@@ -129,7 +120,7 @@ impl Engine {
             join_handles.push(h);
         }
 
-        // Start processing
+        // Start processing threads
         for i in 0..config.concurrent_requests {
             let handle = start_processing_thread(
                 i+1,
@@ -139,6 +130,7 @@ impl Engine {
             join_handles.push(handle);
         }
 
+        // Start continuous crawl thread
         if config.continuous_crawl {
             let h = start_continuous_crawl_thread(
                 self.state.clone(),
