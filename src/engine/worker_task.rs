@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rand::seq::SliceRandom;
@@ -10,6 +10,7 @@ use crate::util;
 
 use super::EngineState;
 use super::thread_state::ThreadStatus;
+use super::worker_pool::WorkerState;
 
 const DEBUG_LOCK: bool = false;
 
@@ -23,14 +24,24 @@ macro_rules! lock_debug {
     };
 }
 
-pub(super) fn start_processing_thread(
-    thread_id: u32,
+pub(super) fn start_worker_thread(
+    worker_id: u32,
     state: Arc<EngineState>,
+    worker_states: Arc<Mutex<Vec<WorkerState>>>,
     stop_tx: broadcast::Sender<()>,
 ) -> JoinHandle<()> {
-    log::debug!("[thread-{}] start", thread_id);
+    log::debug!("[worker-{}] start", worker_id);
     let mut stop_rx = stop_tx.subscribe();
     tokio::spawn(async move {
+        // Set worker states to running
+        {
+            let mut worker_states = worker_states.lock().unwrap();
+            let idx = (worker_id - 1) as usize;
+            assert_eq!(worker_states[idx], WorkerState::Initialized);
+            worker_states[idx] = WorkerState::Running;
+        }
+
+
         'run: loop {
             if let Ok(_) = stop_rx.try_recv() {
                 break 'run;
@@ -44,20 +55,20 @@ pub(super) fn start_processing_thread(
                 let chosen_spider = *spider_names.choose(&mut rng).unwrap();
 
                 lock_debug!(
-                    "[thread-{}] scheduler lock 1 waiting on lock",
-                    thread_id
+                    "[worker-{}] scheduler lock 1 waiting on lock",
+                    worker_id
                 );
                 let mut scheduler = state.scheduler.lock().unwrap();
-                lock_debug!("[thread-{}] scheduler lock 1 acquired", thread_id);
+                lock_debug!("[worker-{}] scheduler lock 1 acquired", worker_id);
                 item = scheduler.next_item(chosen_spider);
             }
-            lock_debug!("[thread-{}] scheduler lock 1 released", thread_id);
+            lock_debug!("[worker-{}] scheduler lock 1 released", worker_id);
 
             match item {
                 Some(item) => {
-                    log::info!("[thread-{}] {}", thread_id, &item.url);
+                    log::info!("[worker-{}] {}", worker_id, &item.url);
 
-                    state.thread_state.set_thread_status(thread_id, ThreadStatus::Busy);
+                    state.thread_state.set_thread_status(worker_id, ThreadStatus::Busy);
 
                     // Get response from the downloader
                     let downloader = state.downloader_pool.get_downloader(&item.url);
@@ -65,7 +76,7 @@ pub(super) fn start_processing_thread(
                     if let Err(e) = response {
                         // TODO: More advanced error handling on request error
                         // Perhaps retry later depending on the actual error.
-                        log::error!("[thread-{}] {:?}", thread_id, e);
+                        log::error!("[worker-{}] {:?}", worker_id, e);
                         continue;
                     }
                     let response = response.unwrap();
@@ -81,7 +92,7 @@ pub(super) fn start_processing_thread(
                     // Enqueue back urls from the spider
                     {
                         let mut scheduler = state.scheduler.lock().unwrap();
-                        lock_debug!("[thread-{}] scheduler lock 2 acquired", thread_id);
+                        lock_debug!("[worker-{}] scheduler lock 2 acquired", worker_id);
                         scheduler.mark_visited(&item.url);
                         for url in urls {
                             if !state.guard_robot.is_allowed(&url) {
@@ -99,11 +110,11 @@ pub(super) fn start_processing_thread(
                             scheduler.enqueue_item(&item.spider_name, new_item);
                         }
                     }
-                    lock_debug!("[thread-{}] scheduler lock 2 released", thread_id);
+                    lock_debug!("[worker-{}] scheduler lock 2 released", worker_id);
                 }
                 None => {
                     {
-                        state.thread_state.set_thread_status(thread_id, ThreadStatus::Idle);
+                        state.thread_state.set_thread_status(worker_id, ThreadStatus::Idle);
 
                         if state.thread_state.is_all_idle() {
                             if state.config.continuous_crawl {

@@ -6,9 +6,10 @@ use tokio::sync::broadcast;
 mod continuous_crawl_task;
 mod downloader_pool;
 mod guard_robot;
-mod processing_task;
 mod reporting_task;
 mod thread_state;
+mod worker_pool;
+mod worker_task;
 
 use crate::Config;
 use crate::scheduler::{DEFAULT_PRIORITY, Scheduler, SchedulerItem};
@@ -18,9 +19,9 @@ use crate::stats::Stats;
 use continuous_crawl_task::start_continuous_crawl_thread;
 use downloader_pool::DownloaderPool;
 use guard_robot::GuardRobot;
-use processing_task::start_processing_thread;
 use reporting_task::start_reporting_thread;
 use thread_state::ThreadState;
+use worker_pool::WorkerPool;
 
 pub struct EngineState
 {
@@ -120,15 +121,9 @@ impl Engine {
             join_handles.push(h);
         }
 
-        // Start processing threads
-        for i in 0..config.concurrent_requests {
-            let handle = start_processing_thread(
-                i+1,
-                self.state.clone(),
-                stop_tx.clone(),
-            );
-            join_handles.push(handle);
-        }
+        // Start worker threads
+        let mut worker_pool = WorkerPool::new(config.clone(), self.state.clone());
+        worker_pool.start(stop_tx.clone());
 
         // Start continuous crawl thread
         if config.continuous_crawl {
@@ -142,6 +137,9 @@ impl Engine {
         for h in join_handles {
             h.await.unwrap();
         }
+
+        // Wait for all workers to finish
+        worker_pool.join().await;
 
         log::info!("Exit gracefully");
     }
