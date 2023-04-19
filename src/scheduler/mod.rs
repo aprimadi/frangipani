@@ -8,14 +8,14 @@ pub struct SchedulerItem {
     pub spider_name: String,
     pub url: String,
     pub priority: u8,
-    
-    // This flag tells the scheduler to whitelist the url, for example when 
+
+    // This flag tells the scheduler to whitelist the url, for example when
     // adding back starting urls for re-crawling. If this flag is not set, the
     // url will be treated as visited and ignored by the scheduler.
     pub force: bool,
-    
+
     // These fields are for exponential backoff algorithm
-    pub retry: u8,                          // Number of retry
+    pub retry: u8, // Number of retry
     pub last_retry: Option<NaiveDateTime>,
 }
 
@@ -35,4 +35,3 @@ pub trait Scheduler {
     /// Returns the maximum priority of items enqueued.
     fn max_priority(&self) -> u8;
 }
-

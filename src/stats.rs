@@ -1,5 +1,5 @@
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 use chrono::{NaiveDateTime, Utc};
 
@@ -67,7 +67,7 @@ impl Stats {
             0
         }
     }
-    
+
     /// Elapsed time for this crawl cycle in seconds
     pub fn elapsed_time(&self) -> i64 {
         let start_time = self.start_time.lock().unwrap();
@@ -76,4 +76,3 @@ impl Stats {
         elapsed.num_seconds()
     }
 }
-

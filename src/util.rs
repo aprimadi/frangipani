@@ -27,4 +27,3 @@ pub fn get_robot_url(url: &str) -> Option<String> {
     url_.set_fragment(None);
     Some(url_.to_string())
 }
-
