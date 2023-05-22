@@ -24,6 +24,17 @@ macro_rules! lock_debug {
     };
 }
 
+/// Start a worker thread.
+///
+/// The worker loops forever and do:
+/// 1. Fetch a URL (`SchedulerItem`) from the queue.
+/// 2. If the URL is present, go to step 3a. Otherwise, go to step 4a.
+/// 3a. Get downloader from the pool for the given url.
+/// 3b. Download the URL content.
+/// 3c. Parse the content.
+/// 3d. Send the parsed content to the spider and get back the next URLs to crawl.
+/// 3e. Enqueue all the URLs from step 3d.
+/// 4a. Check if all the workers are idle. If it is, either reset stats or exit.
 pub(super) fn start_worker_thread(
     worker_id: u32,
     state: Arc<EngineState>,
